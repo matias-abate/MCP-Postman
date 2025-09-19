@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "postman": {
+      "command": "node",
+      "args": ["main.js"],
+      "cwd": "/Users/matiasabate/Documents/Dev/mcp01"
+    }
+  }
+}
