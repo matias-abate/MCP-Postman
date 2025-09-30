@@ -177,6 +177,55 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["collectionId"],
         },
       },
+      {
+        name: "update_collection",
+        description: "Actualizar metadata o items de una collection existente (PUT /collections/:id)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            collectionId: { type: "string" },
+            name: { type: "string" },
+            description: { type: "string" },
+          },
+          required: ["collectionId"],
+        },
+      },
+      {
+        name: "delete_collection",
+        description: "Eliminar una collection por ID (DELETE /collections/:id)",
+        inputSchema: {
+          type: "object",
+          properties: { collectionId: { type: "string" } },
+          required: ["collectionId"],
+        },
+      },
+      {
+        name: "add_request_to_collection",
+        description: "Agregar un request (item) a una collection existente",
+        inputSchema: {
+          type: "object",
+          properties: {
+            collectionId: { type: "string" },
+            name: { type: "string" },
+            method: { type: "string", enum: ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"] },
+            url: { type: "string" },
+            headers: { type: "object", additionalProperties: { type: "string" } },
+            body: {
+              type: "object",
+              properties: {
+                mode: { type: "string", enum: ["raw", "urlencoded", "formdata"] },
+                raw: { type: "string" },
+                urlencoded: { type: "array", items: { type: "object" } },
+                formdata: { type: "array", items: { type: "object" } },
+              },
+            },
+            auth: { type: "object" },
+            tests: { type: "array", items: { type: "string" } },
+            prerequest: { type: "array", items: { type: "string" } },
+          },
+          required: ["collectionId", "name", "method", "url"],
+        },
+      },
     ],
   };
 });
@@ -339,6 +388,86 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return {
       content: [{ type: "text", text: `📄 Collection:\n${JSON.stringify(result.collection ?? {}, null, 2)}` }],
     };
+  }
+
+  if (name === "update_collection") {
+    const { collectionId, name: newName, description } = (args ?? {}) as {
+      collectionId?: string; name?: string; description?: string;
+    };
+    if (!collectionId) throw new Error("collectionId es requerido");
+
+    const current = await makePostmanRequest(`/collections/${collectionId}`, "GET");
+    const collection = current.collection ?? {};
+    if (newName) collection.info = { ...(collection.info ?? {}), name: newName };
+    if (description !== undefined) {
+      collection.info = { ...(collection.info ?? {}), description };
+    }
+
+    const payload = { collection };
+    const result = await makePostmanRequest(`/collections/${collectionId}`, "PUT", payload);
+    return { content: [{ type: "text", text: `✅ Collection actualizada:\n${JSON.stringify(result, null, 2)}` }] };
+  }
+
+  if (name === "delete_collection") {
+    const { collectionId } = (args ?? {}) as { collectionId?: string };
+    if (!collectionId) throw new Error("collectionId es requerido");
+    await makePostmanRequest(`/collections/${collectionId}`, "DELETE");
+    return { content: [{ type: "text", text: "🗑️ Collection eliminada correctamente" }] };
+  }
+
+  if (name === "add_request_to_collection") {
+    const input = (args ?? {}) as any;
+    const { collectionId } = input as { collectionId?: string };
+    if (!collectionId) throw new Error("collectionId es requerido");
+
+    const current = await makePostmanRequest(`/collections/${collectionId}`, "GET");
+    const collection = current.collection ?? {};
+    const items = Array.isArray(collection.item) ? collection.item : [];
+
+    const newItem = {
+      name: input.name,
+      request: {
+        method: input.method,
+        url: input.url,
+        header: input.headers
+          ? Object.entries(input.headers).map(([key, value]) => ({ key, value, type: "text" }))
+          : [],
+        body: input.body
+          ? {
+              mode: input.body.mode || "raw",
+              raw: input.body.raw ?? "",
+              urlencoded: input.body.urlencoded ?? [],
+              formdata: input.body.formdata ?? [],
+            }
+          : undefined,
+        auth: input.auth
+          ? {
+              type: input.auth.type,
+              ...(input.auth.apikey && { apikey: input.auth.apikey }),
+              ...(input.auth.basic && { basic: input.auth.basic }),
+              ...(input.auth.bearer && { bearer: input.auth.bearer }),
+            }
+          : undefined,
+      },
+      event: [
+        ...(input.prerequest
+          ? [{ listen: "prerequest", script: { type: "text/javascript", exec: input.prerequest } }]
+          : []),
+        ...(input.tests
+          ? [{ listen: "test", script: { type: "text/javascript", exec: input.tests } }]
+          : []),
+      ],
+    };
+
+    const updated = {
+      collection: {
+        ...collection,
+        item: [...items, newItem],
+      },
+    };
+
+    const result = await makePostmanRequest(`/collections/${collectionId}`, "PUT", updated);
+    return { content: [{ type: "text", text: `✅ Item agregado a collection:\n${JSON.stringify(result, null, 2)}` }] };
   }
 
   throw new Error(`Herramienta no encontrada: ${name}`);
