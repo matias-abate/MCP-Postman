@@ -1,0 +1,159 @@
+{
+	"info": {
+		"_postman_id": "45974723-578acd20-7973-456f-8970-87da5100b420",
+		"name": "Demo Usuarios y Tickets",
+		"description": "Colección para la demo Bitbucket ↔ Postman.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('Status code is 200', function () {",
+							"  pm.response.to.have.status(200);",
+							"});"
+						],
+						"id": "1830102c-f0b7-4767-a979-b205a0914481"
+					}
+				}
+			],
+			"id": "45974723-b9f9e7be-c306-4184-8c4e-26fa23818ac3",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/health",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"health"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Listar usuarios",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('Status code is 200', function () {",
+							"  pm.response.to.have.status(200);",
+							"});"
+						],
+						"id": "8564f0c9-93e8-4c12-b611-59a95c04a35a"
+					}
+				}
+			],
+			"id": "45974723-7a310395-8326-4856-a8b7-f2e5eb4eca99",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/usuarios",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"usuarios"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Crear usuario",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('Status code is 201', function () {",
+							"  pm.response.to.have.status(201);",
+							"});"
+						],
+						"id": "a8796178-1538-4e3f-a301-7d511dfc7684"
+					}
+				}
+			],
+			"id": "45974723-e5486b02-8e8d-4a2a-bee8-835c8eda5590",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\"nombre\": \"Nuevo\", \"email\": \"nuevo@example.com\"}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/usuarios",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"usuarios"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Listar tickets",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('Status code is 200', function () {",
+							"  pm.response.to.have.status(200);",
+							"});"
+						],
+						"id": "1b8d61d4-e75a-4686-a621-9a76daa5abdf"
+					}
+				}
+			],
+			"id": "45974723-52e64f25-c347-4395-9eb9-2022b5d415dd",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/tickets",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"tickets"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
