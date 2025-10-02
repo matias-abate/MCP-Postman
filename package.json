@@ -11,6 +11,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.5.0",
     "axios": "^1.12.2",
+    "newman": "^6.2.1",
     "zod": "^4.1.9"
   },
   "devDependencies": {

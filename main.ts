@@ -6,6 +6,16 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import axios from "axios";
 
+// newman será importado dinámicamente para evitar problemas de tipos en TS
+type NewmanModule = typeof import("newman");
+let newmanModulePromise: Promise<NewmanModule> | null = null;
+async function getNewman(): Promise<NewmanModule> {
+  if (!newmanModulePromise) {
+    newmanModulePromise = import("newman") as unknown as Promise<NewmanModule>;
+  }
+  return newmanModulePromise;
+}
+
 // =====================
 // Config del servidor
 // =====================
@@ -19,6 +29,9 @@ const server = new Server(
 // =====================
 const POSTMAN_API_BASE = "https://api.getpostman.com";
 let postmanApiKey: string = process.env.POSTMAN_API_KEY ?? "";
+
+// Cache simple en memoria de resultados de ejecuciones
+const lastRunSummaries: Map<string, any> = new Map();
 
 async function makePostmanRequest(
   endpoint: string,
@@ -63,6 +76,57 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ["apiKey"],
+        },
+      },
+      {
+        name: "run_collection",
+        description: "Ejecuta una collection de Postman con Newman y devuelve resultados y métricas",
+        inputSchema: {
+          type: "object",
+          properties: {
+            collectionId: { type: "string" },
+            environmentId: { type: "string" },
+            folder: { type: "string", description: "Nombre de carpeta o item a ejecutar" },
+            timeout: { type: "number" },
+            iterationCount: { type: "number" }
+          },
+          required: ["collectionId"],
+        },
+      },
+      {
+        name: "run_request",
+        description: "Ejecuta un request individual dentro de una collection (por nombre) usando Newman",
+        inputSchema: {
+          type: "object",
+          properties: {
+            collectionId: { type: "string" },
+            itemName: { type: "string", description: "Nombre exacto del request a ejecutar" },
+            environmentId: { type: "string" },
+            timeout: { type: "number" }
+          },
+          required: ["collectionId", "itemName"],
+        },
+      },
+      {
+        name: "get_last_run_results",
+        description: "Obtiene los resultados crudos (summary) de la última ejecución de una collection/opción",
+        inputSchema: {
+          type: "object",
+          properties: {
+            key: { type: "string", description: "Clave de ejecución (auto-generada por run_collection/run_request)" }
+          },
+          required: ["key"],
+        },
+      },
+      {
+        name: "get_last_run_metrics",
+        description: "Obtiene métricas resumidas de la última ejecución (totales, fallos, tiempos)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            key: { type: "string" }
+          },
+          required: ["key"],
         },
       },
       {
@@ -242,6 +306,165 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (!apiKey) throw new Error("API Key es requerida");
     postmanApiKey = apiKey;
     return { content: [{ type: "text", text: "✅ API Key de Postman configurada correctamente" }] };
+  }
+
+  // Helpers para ejecuciones con Newman
+  async function fetchCollection(collectionId: string) {
+    const result = await makePostmanRequest(`/collections/${collectionId}`, "GET");
+    return result.collection;
+  }
+  async function fetchEnvironment(environmentId?: string) {
+    if (!environmentId) return undefined;
+    const result = await makePostmanRequest(`/environments/${environmentId}`, "GET");
+    return result.environment;
+  }
+  function buildRunKey(input: Record<string, any>): string {
+    const base = JSON.stringify(input);
+    // clave corta y estable
+    let hash = 0;
+    for (let i = 0; i < base.length; i++) hash = (hash * 31 + base.charCodeAt(i)) | 0;
+    return `run_${Math.abs(hash)}`;
+  }
+
+  if (name === "run_collection") {
+    const { collectionId, environmentId, folder, timeout = 60000, iterationCount = 1 } = (args ?? {}) as {
+      collectionId?: string; environmentId?: string; folder?: string; timeout?: number; iterationCount?: number;
+    };
+    if (!collectionId) throw new Error("collectionId es requerido");
+
+    const [collection, environment] = await Promise.all([
+      fetchCollection(collectionId),
+      fetchEnvironment(environmentId),
+    ]);
+
+    const newman = await getNewman();
+    const runKey = buildRunKey({ collectionId, environmentId, folder, iterationCount });
+
+    const summary: any = await new Promise((resolve, reject) => {
+      newman.run(
+        {
+          collection,
+          environment,
+          folder,
+          timeout,
+          iterationCount,
+          reporters: [],
+          reporter: {},
+          color: false,
+          insecure: true,
+        },
+        (err: any, sum: any) => {
+          if (err) return reject(err);
+          resolve(sum);
+        }
+      );
+    });
+
+    lastRunSummaries.set(runKey, summary);
+
+    const stats = summary.run?.stats ?? {};
+    const timings = summary.run?.timings ?? {};
+    const failures = summary.run?.failures ?? [];
+    const metrics = {
+      assertions: stats.assertions ?? {},
+      iterations: stats.iterations ?? {},
+      requests: stats.requests ?? {},
+      testScripts: stats.tests ?? stats.testScripts ?? {},
+      transfers: stats.transfers ?? {},
+      timings: {
+        started: timings.started,
+        completed: timings.completed,
+        responseAverage: summary.run?.timings?.responseAverage,
+      },
+      failuresCount: Array.isArray(failures) ? failures.length : 0,
+    };
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `✅ Ejecución completada (key=${runKey})\n` +
+            `Requests: ${metrics.requests?.total ?? 0}, Assertions: ${metrics.assertions?.total ?? 0}, Fallos: ${metrics.failuresCount}`,
+        },
+        { type: "text", text: JSON.stringify({ key: runKey, metrics }, null, 2) },
+      ],
+    };
+  }
+
+  if (name === "run_request") {
+    const { collectionId, itemName, environmentId, timeout = 60000 } = (args ?? {}) as {
+      collectionId?: string; itemName?: string; environmentId?: string; timeout?: number;
+    };
+    if (!collectionId || !itemName) throw new Error("collectionId y itemName son requeridos");
+
+    const [collection, environment] = await Promise.all([
+      fetchCollection(collectionId),
+      fetchEnvironment(environmentId),
+    ]);
+
+    const newman = await getNewman();
+    const runKey = buildRunKey({ collectionId, environmentId, itemName });
+
+    const summary: any = await new Promise((resolve, reject) => {
+      newman.run(
+        {
+          collection,
+          environment,
+          folder: itemName, // Ejecuta solo el item/carpeta con este nombre
+          timeout,
+          reporters: [],
+          reporter: {},
+          color: false,
+          insecure: true,
+        },
+        (err: any, sum: any) => {
+          if (err) return reject(err);
+          resolve(sum);
+        }
+      );
+    });
+
+    lastRunSummaries.set(runKey, summary);
+    const failures = summary.run?.failures ?? [];
+    const firstItem = summary.run?.executions?.[0]?.item?.name ?? itemName;
+    return {
+      content: [
+        { type: "text", text: `✅ Request ejecutado: ${firstItem} (key=${runKey})` },
+        { type: "text", text: `Fallos: ${Array.isArray(failures) ? failures.length : 0}` },
+      ],
+    };
+  }
+
+  if (name === "get_last_run_results") {
+    const { key } = (args ?? {}) as { key?: string };
+    if (!key) throw new Error("key es requerido");
+    if (!lastRunSummaries.has(key)) throw new Error("No hay resultados para la clave indicada");
+    const summary = lastRunSummaries.get(key);
+    return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
+  }
+
+  if (name === "get_last_run_metrics") {
+    const { key } = (args ?? {}) as { key?: string };
+    if (!key) throw new Error("key es requerido");
+    if (!lastRunSummaries.has(key)) throw new Error("No hay resultados para la clave indicada");
+    const summary = lastRunSummaries.get(key);
+    const stats = summary.run?.stats ?? {};
+    const timings = summary.run?.timings ?? {};
+    const failures = summary.run?.failures ?? [];
+    const metrics = {
+      assertions: stats.assertions ?? {},
+      iterations: stats.iterations ?? {},
+      requests: stats.requests ?? {},
+      testScripts: stats.tests ?? stats.testScripts ?? {},
+      transfers: stats.transfers ?? {},
+      timings: {
+        started: timings.started,
+        completed: timings.completed,
+        responseAverage: summary.run?.timings?.responseAverage,
+      },
+      failuresCount: Array.isArray(failures) ? failures.length : 0,
+    };
+    return { content: [{ type: "text", text: JSON.stringify(metrics, null, 2) }] };
   }
 
   // Crear endpoint (collection mínima con un item)
